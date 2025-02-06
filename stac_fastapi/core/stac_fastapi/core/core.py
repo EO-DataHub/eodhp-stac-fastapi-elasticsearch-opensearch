@@ -1487,6 +1487,9 @@ class EsAsyncCollectionSearchClient(AsyncBaseCollectionSearchClient):
 
         if search_request.limit:
             limit = search_request.limit
+        
+        if search_request.filter:
+            search = self.database.apply_cql2_filter_for_themes(search=search, filter=search_request.filter)
 
         collections, maybe_count, next_token = await self.database.execute_collection_search(
             search=search,
