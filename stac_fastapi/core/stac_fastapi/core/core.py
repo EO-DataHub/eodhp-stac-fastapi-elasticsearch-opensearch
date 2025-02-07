@@ -42,6 +42,7 @@ from stac_fastapi.types.extension import ApiExtension
 from stac_fastapi.types.requests import get_base_url
 from stac_fastapi.types.rfc3339 import DateTimeType
 from stac_fastapi.types.search import BaseSearchPostRequest
+from stac_fastapi.extensions.core.filter.request import FilterLang
 
 # Get the logger for this module
 logger = logging.getLogger(__name__)
@@ -61,7 +62,6 @@ logger.addHandler(console_handler)
 
 
 NumType = Union[float, int]
-
 
 @attr.s
 class CoreClient(AsyncBaseCoreClient):
@@ -1491,22 +1491,40 @@ class EsAsyncCollectionSearchClient(AsyncBaseCollectionSearchClient):
         
         if hasattr(search_request, "filter"):
             _filter = getattr(search_request, "filter", None)
+
             if _filter:
-                # Check if filter is a string, and parse it if necessary
+                # Attempt to get the filter language from search_request if available
+                filter_lang = getattr(search_request, "filter_lang", FilterLang.cql2_json)  # Defaults to cql2-json if not provided
+
+                # Ensure filter_lang is an instance of FilterLang Enum
+                if not isinstance(filter_lang, FilterLang):
+                    try:
+                        filter_lang = FilterLang(filter_lang)
+                    except ValueError:
+                        raise ValueError(f"Unsupported filter language: {filter_lang}")
+
+                # Check if the filter is a string and parse it accordingly
                 if isinstance(_filter, str):
                     try:
-                        filter_obj = json.loads(_filter)
-                    except json.JSONDecodeError:
-                        raise ValueError("Invalid JSON provided in the 'filter' parameter")
+                        if filter_lang == FilterLang.cql2_json:
+                            # For cql2-json, parse the string as JSON
+                            filter_obj = orjson.loads(_filter)
+                        elif filter_lang in (FilterLang.cql2_text, FilterLang.cql_json):
+                            # For cql2-text or cql-json, parse and convert to cql2-json
+                            filter_obj = orjson.loads(to_cql2(parse_cql2_text(_filter)))
+                        else:
+                            raise ValueError(f"Unsupported filter language: {filter_lang}")
+                    except (orjson.JSONDecodeError, ValueError) as e:
+                        raise ValueError(f"Invalid filter provided: {e}") from e
                 else:
+                    # If the filter is already a dictionary, use it directly
                     filter_obj = _filter
 
                 # Unwrap the 'filter' key if it exists
-                _filter = filter_obj.get("filter", filter_obj)
+                normalized_filter = filter_obj.get("filter", filter_obj)
 
-                # Apply the filter using your method
-                search = self.database.apply_cql2_filter(search=search, _filter=_filter)
-
+                # Apply the normalized filter using your existing method
+                search = self.database.apply_cql2_filter(search=search, _filter=normalized_filter)
 
         collections, maybe_count, next_token = await self.database.execute_collection_search(
             search=search,
