@@ -1,6 +1,7 @@
 """Core client."""
 
 import logging
+import json
 from datetime import datetime as datetime_type
 from datetime import timezone
 from enum import Enum
@@ -1488,8 +1489,24 @@ class EsAsyncCollectionSearchClient(AsyncBaseCollectionSearchClient):
         if search_request.limit:
             limit = search_request.limit
         
-        if search_request.filter:
-            search = self.database.apply_cql2_filter_for_themes(search=search, filter=search_request.filter)
+        if hasattr(search_request, "filter"):
+            _filter = getattr(search_request, "filter", None)
+            if _filter:
+                # Check if filter is a string, and parse it if necessary
+                if isinstance(_filter, str):
+                    try:
+                        filter_obj = json.loads(_filter)
+                    except json.JSONDecodeError:
+                        raise ValueError("Invalid JSON provided in the 'filter' parameter")
+                else:
+                    filter_obj = _filter
+
+                # Unwrap the 'filter' key if it exists
+                _filter = filter_obj.get("filter", filter_obj)
+
+                # Apply the filter using your method
+                search = self.database.apply_cql2_filter(search=search, _filter=_filter)
+
 
         collections, maybe_count, next_token = await self.database.execute_collection_search(
             search=search,

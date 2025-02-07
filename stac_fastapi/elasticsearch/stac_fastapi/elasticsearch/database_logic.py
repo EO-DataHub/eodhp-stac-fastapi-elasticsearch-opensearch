@@ -1350,52 +1350,6 @@ class DatabaseLogic:
             )
 
         return search
-
-    @staticmethod
-    def apply_cql2_filter_for_themes(search: Search, filter: Optional[Union[str, Dict[str, Any]]], debug: bool = False) -> Search:
-        """Applies CQL2 filter for themes, supporting multiple operators."""
-
-        if not filter:
-            return search
-
-        # Convert JSON string to dict if needed
-        if isinstance(filter, str):
-            try:
-                filter = json.loads(filter.strip())
-            except json.JSONDecodeError:
-                return search
-        elif not isinstance(filter, dict):
-            return search
-
-        # Extract filter object
-        actual_filter = filter.get("filter", filter)
-        op, args = actual_filter.get("op"), actual_filter.get("args", [])
-
-        # Validate filter structure
-        if len(args) != 2 or not isinstance(args[0], dict) or "property" not in args[0]:
-            return search
-
-        field, value = args[0]["property"], args[1]
-
-        # Map CQL2 operators to Elasticsearch queries
-        operator_map = {
-            "=": Q("term", **{field: value}),
-            "!=": ~Q("term", **{field: value}),
-            ">": Q("range", **{field: {"gt": value}}),
-            "<": Q("range", **{field: {"lt": value}}),
-            ">=": Q("range", **{field: {"gte": value}}),
-            "<=": Q("range", **{field: {"lte": value}}),
-            "in": Q("terms", **{field: value if isinstance(value, list) else [value]})
-        }
-
-        # Check if the operator is supported
-        if op not in operator_map:
-            if debug: print(f"Unsupported operator: {op}")
-            return search
-
-        # Build and return the query
-        query = operator_map[op]
-        return search.query(Q("bool", must=[query]))
     
     @staticmethod
     def apply_cql2_filter(search: Search, _filter: Optional[Dict[str, Any]]):
