@@ -67,6 +67,9 @@ ES_ITEMS_SETTINGS = {
     "index": {
         "sort.field": list(DEFAULT_SORT.keys()),
         "sort.order": [v["order"] for v in DEFAULT_SORT.values()],
+
+        # This is set to 12 to make it easy to spread across 1, 2, 3, 4, 6 or 12 nodes.
+        "number_of_shards": 12,
     },
     "analysis": {
         "tokenizer": {
@@ -87,6 +90,10 @@ ES_ITEMS_SETTINGS = {
 }
 
 ES_COLLECTIONS_SETTINGS = {
+    "index": {
+        # This is set to 12 to make it easy to spread across 1, 2, 3, 4, 6 or 12 nodes.
+        "number_of_shards": 12,
+    },
     "analysis": {
         "tokenizer": {
             "edge_ngram_tokenizer": {
