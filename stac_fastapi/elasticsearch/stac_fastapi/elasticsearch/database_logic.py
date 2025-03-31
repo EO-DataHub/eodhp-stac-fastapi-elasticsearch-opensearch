@@ -68,6 +68,8 @@ ES_ITEMS_SETTINGS = {
         "sort.field": list(DEFAULT_SORT.keys()),
         "sort.order": [v["order"] for v in DEFAULT_SORT.values()],
         "mapping.total_fields.limit": 1000,  # Set the maximum number of fields to be indexed
+        # This is set to 12 to make it easy to spread across 1, 2, 3, 4, 6 or 12 nodes.
+        "number_of_shards": 12,
     },
     "analysis": {
         "tokenizer": {
@@ -90,6 +92,8 @@ ES_ITEMS_SETTINGS = {
 ES_COLLECTIONS_SETTINGS = {
     "index": {
         "mapping.total_fields.limit": 1100,  # Set the maximum number of fields to be indexed for collections and catalogs
+        # This is set to 12 to make it easy to spread across 1, 2, 3, 4, 6 or 12 nodes.
+        "number_of_shards": 12,
     },
     "analysis": {
         "tokenizer": {
