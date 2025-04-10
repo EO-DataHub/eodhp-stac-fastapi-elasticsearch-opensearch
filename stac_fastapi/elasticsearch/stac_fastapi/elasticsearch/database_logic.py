@@ -1828,7 +1828,7 @@ class DatabaseLogic:
         return catalog
         
 
-    async def create_catalog(self, cat_path: str, catalog: Catalog, workspace: str, refresh: bool = False):
+    async def create_catalog(self, catalog: Catalog, workspace: str, cat_path: Optional[str]=None, refresh: bool = False):
         """Create a single catalog in the database.
 
         Args:
@@ -1847,7 +1847,7 @@ class DatabaseLogic:
         catalog_id = catalog["id"]
         gen_cat_path = self.generate_cat_path(cat_path)
 
-        if cat_path == "root":
+        if not cat_path:
             combi_cat_path = catalog_id
         else:
             combi_cat_path = gen_cat_path + "||" + catalog_id
@@ -1858,7 +1858,7 @@ class DatabaseLogic:
         parent_catalog = None
 
         # Check if parent catalog exists
-        if cat_path != "root":
+        if cat_path:
             parent_path, parent_id = self.generate_parent_id(cat_path)
             try:
                 logger.info(f"Getting parent catalog {parent_path}, in index {CATALOGS_INDEX}")
@@ -1875,6 +1875,7 @@ class DatabaseLogic:
         else:
             if workspace != ADMIN_WORKSPACE:
                 raise HTTPException(status_code=403, detail="Only admin can create catalogs at root level")
+
         if workspace == ADMIN_WORKSPACE:
             is_public = True
         elif parent_catalog and access_control.get("owner") == ADMIN_WORKSPACE:

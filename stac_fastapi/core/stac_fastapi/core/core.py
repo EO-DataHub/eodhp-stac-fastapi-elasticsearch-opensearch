@@ -1161,7 +1161,7 @@ class TransactionsClient(AsyncBaseTransactionsClient):
     
     @overrides
     async def create_catalog(
-        self, cat_path: str, catalog: Catalog, workspace: str, **kwargs
+        self, catalog: Catalog, workspace: str, cat_path: Optional[str]=None, **kwargs
     ) -> stac_types.Catalog:
         """Create a new catalog in the database.
 
