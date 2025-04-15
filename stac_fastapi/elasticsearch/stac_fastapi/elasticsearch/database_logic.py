@@ -575,7 +575,7 @@ class DatabaseLogic:
             cat_path = cat_path + "/"
         else:
             catalog_id = cat_path
-            cat_path = "root"
+            cat_path = ""
 
         gen_cat_path = self.generate_cat_path(cat_path)
         if gen_cat_path:
@@ -585,13 +585,13 @@ class DatabaseLogic:
         return gen_parent_id, catalog_id
     
     async def update_parent_catalog_access(self, cat_path: str, public: bool):
-        logger.info(f"Updating parent catalog access for {cat_path}")
+        # logger.info(f"Updating parent catalog access for {cat_path}")
         # Only called when child is to be set public
         parent_id, catalog_id = self.generate_parent_id(cat_path)
 
         # Get parent catalog
         try:
-            logger.info(f"Getting catalog {parent_id} in index {CATALOGS_INDEX}")
+            # logger.info(f"Getting catalog {parent_id} in index {CATALOGS_INDEX}")
             parent_catalog = await self.client.get(index=CATALOGS_INDEX, id=parent_id)
         except exceptions.NotFoundError:
             raise NotFoundError(f"Catalog {catalog_id} not found")
@@ -619,9 +619,6 @@ class DatabaseLogic:
                                             "count_public_children": count_public}
                 }
         
-
-        logger.info(f"Updating parent catalog access to be public for {parent_id}")
-
         await self.client.update(
             index=CATALOGS_INDEX,
             id=parent_id,
@@ -632,10 +629,12 @@ class DatabaseLogic:
         if cat_path.count("/") > 0:
             # Update access details for parent catalog also
             # Extract catalog path to parent catalog
-            cat_path = cat_path.rsplit("/", 1)[0][:-9]
-            await self.update_parent_catalog_access(cat_path, public)
+            if inf_public != public:
+                cat_path = cat_path.rsplit("/", 1)[0][:-9]
+                await self.update_parent_catalog_access(cat_path, public)
 
     async def update_children_access_items(self, prefix, public):
+        # logger.info(f"UPDATING CHILDREN FOR {prefix} to be {'public' if public else 'private'}")
         pattern = f"{prefix},*"
         query = {
             "query": {
@@ -661,7 +660,7 @@ class DatabaseLogic:
 
         # Print the count of updates made
         updated_count = response.get('updated', 0)
-        logger.info(f"Number of documents (items) updated: {updated_count}")
+        # logger.info(f"Number of documents (items) updated: {updated_count}")
 
     async def update_collection_children_access_items(self, cat_path, collection_id, public):
         query = {
@@ -1706,7 +1705,7 @@ class DatabaseLogic:
             raise NotFoundError(f"Parent collection {collection_id} not found")
 
         # Check if parent catalog exists
-        if cat_path != "root":
+        if cat_path != "":
             access_control = parent_collection.get("_sfapi_internal", {})
             if access_control.get("owner") != workspace:
                 raise HTTPException(status_code=403, detail="You do not have permission to create items in this collection")
@@ -1766,7 +1765,7 @@ class DatabaseLogic:
             raise NotFoundError(f"Parent collection {collection_id} not found")
 
         # Check if workspace has access
-        if cat_path != "root":
+        if cat_path != "":
             access_control = parent_collection.get("_sfapi_internal", {})
             if access_control.get("owner") != workspace:
                 raise HTTPException(status_code=403, detail="You do not have permission to delete items in this collection")
@@ -1809,7 +1808,7 @@ class DatabaseLogic:
             cat_path, catalog_id = cat_path.rsplit("/", 1)
         else:
             catalog_id = cat_path
-            cat_path = "root"
+            cat_path = ""
         cat_path = cat_path[:-9] if cat_path.endswith("/catalogs") else cat_path # remove trailing /catalogs
         gen_cat_path = self.generate_cat_path(cat_path)
 
@@ -1938,7 +1937,7 @@ class DatabaseLogic:
             cat_path = cat_path + "/"
         else:
             catalog_id = cat_path
-            cat_path = "root"
+            cat_path = ""
         gen_cat_path = self.generate_cat_path(cat_path)
 
         if gen_cat_path:
@@ -2017,7 +2016,7 @@ class DatabaseLogic:
             parent_cat_path = parent_cat_path + "/"
         else:
             catalog_id = cat_path
-            parent_cat_path = "root"
+            parent_cat_path = ""
         gen_parent_cat_path = self.generate_cat_path(parent_cat_path)
         if gen_parent_cat_path:
             combi_cat_path = gen_parent_cat_path + "||" + catalog_id
@@ -2037,9 +2036,9 @@ class DatabaseLogic:
             raise HTTPException(status_code=403, detail="You do not have permission to update access policy for this catalog")
         logger.info(f"Updating policy for {combi_cat_path} with {access_policy.get('public', False)}")
         annotations = {"_sfapi_internal": {"exp_public": access_policy.get("public", False)}}
-        if not access_policy.get("public", False):
-            # If now setting private, reset inf_public value to False too
-            annotations["_sfapi_internal"].update({"inf_public": False})
+        # if not access_policy.get("public", False):
+        #     # If now setting private, reset inf_public value to False too
+        #     annotations["_sfapi_internal"].update({"inf_public": False})
 
         await self.client.update(
                 index=CATALOGS_INDEX,
@@ -2048,15 +2047,18 @@ class DatabaseLogic:
                 refresh=True,
             )
 
-        #  Need to update parent access to ensure access when now public
+        # Need to update parent access to ensure access when now public
         if parent_cat_path:
-            #Update access details for parent catalog also
+            # Update access details for parent catalog also
             # Extract catalog path to parent catalog
-            cat_path = cat_path.rsplit("/", 1)[0][:-9] # remove trailing "/catalogs"
-            await self.update_parent_catalog_access(cat_path, access_policy.get("public", False))
+            if access_control.get("exp_public", False) != access_policy.get("public", False):
+                logger.info("Updating parent catalog access policy")
+                cat_path = cat_path.rsplit("/", 1)[0][:-9] # remove trailing "/catalogs"
+                await self.update_parent_catalog_access(cat_path, access_policy.get("public", False))
 
         gen_cat_path = self.generate_cat_path(cat_path)
-        await self.update_children_access_catalogs(prefix=gen_cat_path, public=access_policy.get("public", False))
+        child_cat_path = gen_cat_path + "," + catalog_id
+        await self.update_children_access_catalogs(prefix=child_cat_path, public=access_policy.get("public", False))
         await self.update_children_access_collections(prefix=gen_cat_path, public=access_policy.get("public", False))
         await self.update_children_access_items(prefix=gen_cat_path, public=access_policy.get("public", False))
 
@@ -2082,7 +2084,7 @@ class DatabaseLogic:
             parent_cat_path, catalog_id = cat_path.rsplit("/", 1)
         else:
             catalog_id = cat_path
-            parent_cat_path = "root"
+            parent_cat_path = ""
         parent_cat_path = parent_cat_path[:-9] if parent_cat_path.endswith("/catalogs") else parent_cat_path # remove trailing /catalogs
         gen_parent_cat_path = self.generate_cat_path(parent_cat_path)
         
@@ -2101,6 +2103,11 @@ class DatabaseLogic:
         except exceptions.NotFoundError:
             raise NotFoundError(f"Catalog {catalog_id} not found")
         access_control = prev_catalog.get("_sfapi_internal", {})
+        # If this was a public catalog, we need to update inferred parent catalogue access,
+        # as if it were being set private
+        if access_control.get("exp_public", False):
+            await self.update_parent_catalog_access(parent_cat_path, False)
+            
         if access_control.get("owner") != workspace:
             raise HTTPException(status_code=403, detail="You do not have permission to delete catalogs in this catalog")
         await self.client.delete(
@@ -2194,7 +2201,7 @@ class DatabaseLogic:
         combi_collection_id = gen_cat_path + "||" + collection_id
             
         # Check if parent catalog exists
-        if cat_path != "root":
+        if cat_path != "":
             parent_path, parent_id = self.generate_parent_id(cat_path)
             try:
                 logger.info(f"Getting parent catalog {parent_path}, in index {CATALOGS_INDEX}")
@@ -2353,8 +2360,8 @@ class DatabaseLogic:
 
         # Need to update parent access to ensure access when now public
         # Only make change if there is a change in access
-        # if access_control.get("exp_public", False) != access_policy.get("public", False):
-        await self.update_parent_catalog_access(cat_path, access_policy.get("public", False))
+        if access_control.get("exp_public", False) != access_policy.get("public", False):
+            await self.update_parent_catalog_access(cat_path, access_policy.get("public", False))
         await self.update_collection_children_access_items(cat_path=gen_cat_path, collection_id=collection_id, public=access_policy.get("public", False))
 
     async def delete_collection(self, cat_path: str, collection_id: str, workspace: str, refresh: bool = False):
@@ -2388,6 +2395,11 @@ class DatabaseLogic:
         access_control = prev_collection.get("_sfapi_internal", {})
         if access_control.get("owner") != workspace:
             raise HTTPException(status_code=403, detail="You do not have permission to delete collections in this catalog")
+        
+        # If this was a public collection, we need to update inferred parent catalog access,
+        # as if it were being set private
+        if access_control.get("exp_public", False):
+            await self.update_parent_catalog_access(cat_path, False)
 
         await self.client.delete(
             index=COLLECTIONS_INDEX, id=combi_collection_id, refresh=refresh
