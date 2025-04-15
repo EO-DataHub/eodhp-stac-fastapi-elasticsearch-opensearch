@@ -28,6 +28,18 @@ from stac_fastapi.types.stac import Catalog, Collection, Item
 
 # Get the logger for this module
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  # Set the logging level to INFO for this module
+
+# Create a console handler and set the level to INFO
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# Create a formatter and set it for the handler
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+console_handler.setFormatter(formatter)
+
+# Add the handler to the logger
+logger.addHandler(console_handler)
 
 NumType = Union[float, int]
 
@@ -618,11 +630,10 @@ class DatabaseLogic:
         )
 
         if cat_path.count("/") > 0:
-            # Update parent catalog access only if there is a change in the inferred public status
-            if inf_public != public:
-                # Extract catalog path to parent catalog
-                cat_path = cat_path.rsplit("/", 1)[0][:-9]
-                await self.update_parent_catalog_access(cat_path, public)
+            # Update access details for parent catalog also
+            # Extract catalog path to parent catalog
+            cat_path = cat_path.rsplit("/", 1)[0][:-9]
+            await self.update_parent_catalog_access(cat_path, public)
 
     async def update_children_access_items(self, prefix, public):
         pattern = f"{prefix},*"
@@ -1810,7 +1821,6 @@ class DatabaseLogic:
         logger.info(f"Getting catalog {combi_cat_path}, in index {CATALOGS_INDEX}")
 
         try:
-            logger.info(f"Getting catalog {combi_cat_path}, in index {CATALOGS_INDEX}")
             catalog = await self.client.get(index=CATALOGS_INDEX, id=combi_cat_path)
             catalog = catalog["_source"]
         except exceptions.NotFoundError:
@@ -2040,11 +2050,10 @@ class DatabaseLogic:
 
         #  Need to update parent access to ensure access when now public
         if parent_cat_path:
-            # Only make change if there is a change in access
-            if access_control.get("inf_public", False) != access_policy.get("public", False):
-                # Extract catalog path to parent catalog
-                cat_path = cat_path.rsplit("/", 1)[0][:-9] # remove trailing "/catalogs"
-                await self.update_parent_catalog_access(cat_path, access_policy.get("public", False))
+            #Update access details for parent catalog also
+            # Extract catalog path to parent catalog
+            cat_path = cat_path.rsplit("/", 1)[0][:-9] # remove trailing "/catalogs"
+            await self.update_parent_catalog_access(cat_path, access_policy.get("public", False))
 
         gen_cat_path = self.generate_cat_path(cat_path)
         await self.update_children_access_catalogs(prefix=gen_cat_path, public=access_policy.get("public", False))
@@ -2344,8 +2353,8 @@ class DatabaseLogic:
 
         # Need to update parent access to ensure access when now public
         # Only make change if there is a change in access
-        if access_control.get("exp_public", False) != access_policy.get("public", False):
-            await self.update_parent_catalog_access(cat_path, access_policy.get("public", False))
+        # if access_control.get("exp_public", False) != access_policy.get("public", False):
+        await self.update_parent_catalog_access(cat_path, access_policy.get("public", False))
         await self.update_collection_children_access_items(cat_path=gen_cat_path, collection_id=collection_id, public=access_policy.get("public", False))
 
     async def delete_collection(self, cat_path: str, collection_id: str, workspace: str, refresh: bool = False):
