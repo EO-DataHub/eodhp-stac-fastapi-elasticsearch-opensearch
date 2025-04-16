@@ -414,9 +414,9 @@ class EsAsyncAggregationClient(AsyncBaseAggregationClient):
                 collection_id = path.split("/")[2]
 
             filter_lang = "cql2-json"
-            if aggregate_request.filter:
-                aggregate_request.filter = self.get_filter(
-                    aggregate_request.filter, filter_lang
+            if aggregate_request.filter_expr:
+                aggregate_request.filter_expr = self.get_filter(
+                    aggregate_request.filter_expr, filter_lang
                 )
 
         if collection_id:
@@ -438,7 +438,7 @@ class EsAsyncAggregationClient(AsyncBaseAggregationClient):
             )
 
         if cat_path:
-            search = self.database.apply_catalogs_filter(search=search, cat_path=cat_path)
+            search = self.database.apply_catalogs_filter(search=search, catalog_path=cat_path)
 
         if aggregate_request.ids:
             search = self.database.apply_ids_filter(
@@ -464,7 +464,7 @@ class EsAsyncAggregationClient(AsyncBaseAggregationClient):
             )
 
         if cat_path:
-            search = self.database.apply_catalogs_filter(search=search, cat_path=cat_path)
+            search = self.database.apply_catalogs_filter(search=search, catalog_path=cat_path)
 
         if aggregate_request.collections:
             search = self.database.apply_collections_filter(
@@ -473,7 +473,7 @@ class EsAsyncAggregationClient(AsyncBaseAggregationClient):
             # validate that aggregations are supported for all collections
             for collection_id in aggregate_request.collections:
                 aggs = await self.get_aggregations(
-                    cat_path=cat_path, collection_id=collection_id, request=request
+                    auth_headers=auth_headers, cat_path=cat_path, collection_id=collection_id, request=request
                 )
                 supported_aggregations = (
                     aggs["aggregations"] + self.DEFAULT_AGGREGATIONS
@@ -487,7 +487,7 @@ class EsAsyncAggregationClient(AsyncBaseAggregationClient):
                         )
         else:
             # Validate that the aggregations requested are supported by the catalog
-            aggs = await self.get_aggregations(cat_path=cat_path, request=request)
+            aggs = await self.get_aggregations(auth_headers=auth_headers, cat_path=cat_path, request=request)
             supported_aggregations = aggs["aggregations"]
             for agg_name in aggregate_request.aggregations:
                 if agg_name not in [x["name"] for x in supported_aggregations]:
@@ -496,10 +496,10 @@ class EsAsyncAggregationClient(AsyncBaseAggregationClient):
                         detail=f"Aggregation {agg_name} not supported at catalog level",
                     )
 
-        if aggregate_request.filter:
+        if aggregate_request.filter_expr:
             try:
                 search = self.database.apply_cql2_filter(
-                    search, aggregate_request.filter
+                    search, aggregate_request.filter_expr
                 )
             except Exception as e:
                 raise HTTPException(
@@ -542,6 +542,8 @@ class EsAsyncAggregationClient(AsyncBaseAggregationClient):
 
         try:
             db_response = await self.database.aggregate(
+                workspaces, 
+                cat_path,
                 collections,
                 aggregate_request.aggregations,
                 search,
