@@ -28,18 +28,6 @@ from stac_fastapi.types.stac import Catalog, Collection, Item
 
 # Get the logger for this module
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # Set the logging level to INFO for this module
-
-# Create a console handler and set the level to INFO
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-
-# Create a formatter and set it for the handler
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-console_handler.setFormatter(formatter)
-
-# Add the handler to the logger
-logger.addHandler(console_handler)
 
 NumType = Union[float, int]
 
@@ -587,13 +575,11 @@ class DatabaseLogic:
         return gen_parent_id, catalog_id
     
     async def update_parent_catalog_access(self, cat_path: str, public: bool):
-        # logger.info(f"Updating parent catalog access for {cat_path}")
         # Only called when child is to be set public
         parent_id, catalog_id = self.generate_parent_id(cat_path)
 
         # Get parent catalog
         try:
-            # logger.info(f"Getting catalog {parent_id} in index {CATALOGS_INDEX}")
             parent_catalog = await self.client.get(index=CATALOGS_INDEX, id=parent_id)
         except exceptions.NotFoundError:
             raise NotFoundError(f"Catalog {catalog_id} not found")
@@ -638,7 +624,6 @@ class DatabaseLogic:
                 await self.update_parent_catalog_access(cat_path, new_inf_public)
 
     async def update_children_access_items(self, prefix, public):
-        # logger.info(f"UPDATING CHILDREN FOR {prefix} to be {'public' if public else 'private'}")
         pattern = f"{prefix}*"
         query = {
             "query": {
@@ -1135,8 +1120,6 @@ class DatabaseLogic:
     @staticmethod
     def apply_access_filter(search: Search, workspaces: List[str]):
         """Database logic to search by access control."""
-        # search = search.filter("term", **{"_sfapi_internal.public": True})
-        # search = search.filter("term", **{"_sfapi_internal.owner": workspace})
         or_condition = Q("term", **{"_sfapi_internal.exp_public": True}) | Q("term", **{"_sfapi_internal.inf_public": True})
         for workspace in workspaces:
             or_condition = or_condition | Q("term", **{"_sfapi_internal.owner": workspace})
