@@ -575,6 +575,7 @@ class DatabaseLogic:
         return gen_parent_id, catalog_id
     
     async def update_parent_catalog_access(self, cat_path: str, public: bool):
+        logger.info(f"Updating parent catalog access for {cat_path}")
         # Only called when child is to be set public
         parent_id, catalog_id = self.generate_parent_id(cat_path)
 
