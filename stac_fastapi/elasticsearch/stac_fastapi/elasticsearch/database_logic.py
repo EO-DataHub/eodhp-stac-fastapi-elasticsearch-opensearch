@@ -356,6 +356,7 @@ async def delete_catalogs_by_id_prefix(prefix: str, refresh: bool = True):
 
 async def delete_collections_by_id_prefix(prefix: str, refresh: bool = True):
     client = AsyncElasticsearchSettings().create_client
+    logger.info(f"Deleting collections with prefix: {prefix}")
     pattern = f"{prefix}*"
     body={
         "query": {
@@ -378,6 +379,7 @@ async def delete_collections_by_id_prefix(prefix: str, refresh: bool = True):
 
 async def delete_items_by_id_prefix(prefix: str, refresh: bool = True):
     client = AsyncElasticsearchSettings().create_client
+    logger.info(f"Deleting items with prefix: {prefix}")
     pattern = f"{prefix}*"
     body={
         "query": {
@@ -597,27 +599,29 @@ class DatabaseLogic:
             raise NotFoundError(f"Catalog {catalog_id} not found")
         parent_catalog = parent_catalog["_source"]
 
-        inf_public = parent_catalog.get("_sfapi_internal", {}).get("inf_public", False)
+        old_inf_public = parent_catalog.get("_sfapi_internal", {}).get("inf_public", False)
         count_public = parent_catalog.get("_sfapi_internal", {}).get("count_public_children", 0)
 
         annotations = {}
 
+        new_inf_public = old_inf_public
+
         if public:
             count_public += 1
-            annotations = {"_sfapi_internal": {"inf_public": True,
+            new_inf_public = True
+            annotations = {"_sfapi_internal": {"inf_public": new_inf_public,
                                             "count_public_children": count_public}
             }
-        else:
+        elif old_inf_public:
+            # Only update the inferred setting if it was previously set to true
             # If this catalog has no more public children, set inferred to false
             count_public -= 1
-            if count_public == 0:
-                annotations = {"_sfapi_internal": {"inf_public": False,
-                                            "count_public_children": count_public}
-                }
-            else:
-                annotations = {"_sfapi_internal": {"inf_public": True,
-                                            "count_public_children": count_public}
-                }
+            new_inf_public = False
+            if count_public > 0:
+                new_inf_public = True
+            annotations = {"_sfapi_internal": {"inf_public": new_inf_public,
+                                        "count_public_children": count_public}
+            }
         
         await self.client.update(
             index=CATALOGS_INDEX,
@@ -629,13 +633,13 @@ class DatabaseLogic:
         if cat_path.count("/") > 0:
             # Update access details for parent catalog also
             # Extract catalog path to parent catalog
-            if inf_public != public:
-                cat_path = cat_path.rsplit("/", 1)[0][:-9]
-                await self.update_parent_catalog_access(cat_path, public)
+            if old_inf_public != new_inf_public:
+                cat_path = cat_path.rsplit("/", 1)[0][:-9] # remove trailing "/catalogs"
+                await self.update_parent_catalog_access(cat_path, new_inf_public)
 
     async def update_children_access_items(self, prefix, public):
         # logger.info(f"UPDATING CHILDREN FOR {prefix} to be {'public' if public else 'private'}")
-        pattern = f"{prefix},*"
+        pattern = f"{prefix}*"
         query = {
             "query": {
                 "wildcard": {
@@ -660,7 +664,7 @@ class DatabaseLogic:
 
         # Print the count of updates made
         updated_count = response.get('updated', 0)
-        # logger.info(f"Number of documents (items) updated: {updated_count}")
+        logger.info(f"Number of documents (items) updated: {updated_count}")
 
     async def update_collection_children_access_items(self, cat_path, collection_id, public):
         query = {
@@ -691,7 +695,7 @@ class DatabaseLogic:
         logger.info(f"Number of documents (items) updated: {updated_count}")
 
     async def update_children_access_collections(self, prefix, public):
-        pattern = f"{prefix},*"
+        pattern = f"{prefix}*"
         query = {
             "query": {
                 "wildcard": {
@@ -719,7 +723,13 @@ class DatabaseLogic:
         logger.info(f"Number of documents (collections) updated: {updated_count}")
 
     async def update_children_access_catalogs(self, prefix, public):
-        pattern = f"{prefix},*"
+        pattern = f"{prefix}*"
+        # Always update the explicit public value to be that set in the parent
+        source = "ctx._source._sfapi_internal.exp_public = params.exp_public;"
+        # If the parent is not public, set the inferred public value to false
+        source += "ctx._source._sfapi_internal.inf_public = false;"
+        # If the parent is not public, set the count of public children to 0
+        source += "ctx._source._sfapi_internal.count_public_children = 0;"
         query = {
             "query": {
                 "wildcard": {
@@ -729,7 +739,7 @@ class DatabaseLogic:
                 }
             },
             "script": {
-                "source": f"ctx._source._sfapi_internal.exp_public = params.exp_public",
+                "source": source,
                 "params": {
                     "exp_public": public
                 }
@@ -2036,9 +2046,9 @@ class DatabaseLogic:
             raise HTTPException(status_code=403, detail="You do not have permission to update access policy for this catalog")
         logger.info(f"Updating policy for {combi_cat_path} with {access_policy.get('public', False)}")
         annotations = {"_sfapi_internal": {"exp_public": access_policy.get("public", False)}}
-        # if not access_policy.get("public", False):
-        #     # If now setting private, reset inf_public value to False too
-        #     annotations["_sfapi_internal"].update({"inf_public": False})
+        # Overwrite inferred access as well
+        annotations["_sfapi_internal"].update({"inf_public": False})
+        annotations["_sfapi_internal"].update({"count_public_children": 0})
 
         await self.client.update(
                 index=CATALOGS_INDEX,
@@ -2049,16 +2059,22 @@ class DatabaseLogic:
 
         # Need to update parent access to ensure access when now public
         if parent_cat_path:
-            # Update access details for parent catalog also
-            # Extract catalog path to parent catalog
-            if access_control.get("exp_public", False) != access_policy.get("public", False):
+            change_in_setting = (
+                access_policy.get("public", False)
+                and not (access_control.get("exp_public", False) or access_control.get("inf_public", False))
+            ) or (
+                not access_policy.get("public", False)
+                and (access_control.get("exp_public", False) or access_control.get("inf_public", False))
+            )
+            # Update access details for parent catalog only if it was previously private and now public,
+            # or previously public and now private
+            if change_in_setting:
                 logger.info("Updating parent catalog access policy")
-                cat_path = cat_path.rsplit("/", 1)[0][:-9] # remove trailing "/catalogs"
-                await self.update_parent_catalog_access(cat_path, access_policy.get("public", False))
+                parent_cat_path = parent_cat_path[:-10] if parent_cat_path.endswith("/catalogs/") else parent_cat_path # remove trailing "/catalogs"
+                await self.update_parent_catalog_access(parent_cat_path, access_policy.get("public", False))
 
         gen_cat_path = self.generate_cat_path(cat_path)
-        child_cat_path = gen_cat_path + "," + catalog_id
-        await self.update_children_access_catalogs(prefix=child_cat_path, public=access_policy.get("public", False))
+        await self.update_children_access_catalogs(prefix=gen_cat_path, public=access_policy.get("public", False))
         await self.update_children_access_collections(prefix=gen_cat_path, public=access_policy.get("public", False))
         await self.update_children_access_items(prefix=gen_cat_path, public=access_policy.get("public", False))
 
