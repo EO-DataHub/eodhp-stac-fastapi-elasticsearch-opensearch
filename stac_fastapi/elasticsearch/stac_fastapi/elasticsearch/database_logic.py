@@ -2106,7 +2106,8 @@ class DatabaseLogic:
         # If this was a public catalog, we need to update inferred parent catalogue access,
         # as if it were being set private
         if access_control.get("exp_public", False):
-            await self.update_parent_catalog_access(parent_cat_path, False)
+            if parent_cat_path:
+                await self.update_parent_catalog_access(parent_cat_path, False)
             
         if access_control.get("owner") != workspace:
             raise HTTPException(status_code=403, detail="You do not have permission to delete catalogs in this catalog")
