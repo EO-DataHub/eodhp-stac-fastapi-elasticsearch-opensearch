@@ -397,6 +397,7 @@ class CoreClient(AsyncBaseCoreClient):
         logger.info("Getting all catalogs")
         request = kwargs["request"]
         workspaces = auth_headers.get("X-Workspaces", [])
+        user_is_authenticated = auth_headers.get("X-Authenticated", False)
         base_url = str(request.base_url)
         limit = int(request.query_params.get("limit", 10))
         token = request.query_params.get("token")
@@ -404,6 +405,10 @@ class CoreClient(AsyncBaseCoreClient):
         # We want all the top-level catalogs returned
         if cat_path == "":
             limit = 10_000
+
+        if cat_path:
+            # Check is catalog is accessible to the user
+            await self.database.find_catalog(cat_path=cat_path, workspaces=workspaces, user_is_authenticated=user_is_authenticated)
 
         catalogs, maybe_count, next_token = await self.database.get_all_catalogs(
             cat_path=cat_path, token=token, limit=limit, request=request, workspaces=workspaces, conformance_classes=self.conformance_classes(),
@@ -509,6 +514,7 @@ class CoreClient(AsyncBaseCoreClient):
         token = request.query_params.get("token")
         base_url = str(request.base_url)
 
+        # Check if collection is accessible to the user
         collection = await self.get_collection(
             cat_path=cat_path, collection_id=collection_id, request=request, auth_headers=auth_headers
         )
@@ -1161,7 +1167,7 @@ class TransactionsClient(AsyncBaseTransactionsClient):
     
     @overrides
     async def create_catalog(
-        self, cat_path: str, catalog: Catalog, workspace: str, **kwargs
+        self, catalog: Catalog, workspace: str, cat_path: Optional[str]=None, **kwargs
     ) -> stac_types.Catalog:
         """Create a new catalog in the database.
 
@@ -1254,7 +1260,7 @@ class TransactionsClient(AsyncBaseTransactionsClient):
             cat_path=cat_path, access_policy=access_policy, workspace=workspace
         )
 
-        catalog = await self.database.find_catalog(cat_path=cat_path, workspaces=[workspace], user_is_authenticated=True)
+        await self.database.find_catalog(cat_path=cat_path, workspaces=[workspace], user_is_authenticated=True)
 
         return None
 
@@ -1519,6 +1525,7 @@ class EsAsyncCollectionSearchClient(AsyncBaseCollectionSearchClient):
         token = request.query_params.get("token")
 
         if cat_path:
+            # Check if catalog is accessible to the user
             await self.database.find_catalog(cat_path=cat_path, workspaces=workspaces, user_is_authenticated=user_is_authenticated)
 
         search = self.database.make_search()
