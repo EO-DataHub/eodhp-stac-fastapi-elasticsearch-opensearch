@@ -50,6 +50,8 @@ def _es_config() -> Dict[str, Any]:
     if (u := os.getenv("ES_USER")) and (p := os.getenv("ES_PASS")):
         config["http_auth"] = (u, p)
 
+    config["timeout"] = int(os.getenv("ES_TIMEOUT", "60"))
+
     return config
 
 
