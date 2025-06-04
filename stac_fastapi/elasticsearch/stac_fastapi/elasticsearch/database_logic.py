@@ -557,7 +557,7 @@ class DatabaseLogic:
             cat_path = f"{cat_path}|{collection_id}"
         return cat_path
 
-    def generate_parent_id(self, cat_path: str) -> Tuple[str, str]:
+    def generate_full_id(self, cat_path: str) -> Tuple[str, str]:
         if cat_path.endswith("/"):
             cat_path = cat_path[:-1]
         if cat_path.count("/") > 0:
@@ -569,25 +569,25 @@ class DatabaseLogic:
 
         gen_cat_path = self.generate_cat_path(cat_path)
         if gen_cat_path:
-            gen_parent_id = f"{gen_cat_path}||{catalog_id}"
+            gen_full_id = f"{gen_cat_path}||{catalog_id}"
         else:
-            gen_parent_id = catalog_id
-        return gen_parent_id, catalog_id
+            gen_full_id = catalog_id
+        return gen_full_id, catalog_id
     
     async def update_parent_catalog_access(self, cat_path: str, public: bool):
         logger.info(f"Updating parent catalog access for {cat_path}")
         # Only called when child is to be set public
-        parent_id, catalog_id = self.generate_parent_id(cat_path)
+        full_id, catalog_id = self.generate_full_id(cat_path)
 
         # Get parent catalog
         try:
-            parent_catalog = await self.client.get(index=CATALOGS_INDEX, id=parent_id)
+            catalog = await self.client.get(index=CATALOGS_INDEX, id=full_id)
         except exceptions.NotFoundError:
             raise NotFoundError(f"Catalog {catalog_id} not found")
-        parent_catalog = parent_catalog["_source"]
+        catalog_source = catalog["_source"]
 
-        old_inf_public = parent_catalog.get("_sfapi_internal", {}).get("inf_public", False)
-        count_public = parent_catalog.get("_sfapi_internal", {}).get("count_public_children", 0)
+        old_inf_public = catalog_source.get("_sfapi_internal", {}).get("inf_public", False)
+        count_public = catalog_source.get("_sfapi_internal", {}).get("count_public_children", 0)
 
         annotations = {}
 
@@ -612,7 +612,7 @@ class DatabaseLogic:
         
         await self.client.update(
             index=CATALOGS_INDEX,
-            id=parent_id,
+            id=full_id,
             body={"doc": annotations},
             refresh=True,
         )
@@ -1862,7 +1862,7 @@ class DatabaseLogic:
 
         # Check if parent catalog exists
         if cat_path:
-            parent_path, parent_id = self.generate_parent_id(cat_path)
+            parent_path, parent_id = self.generate_full_id(cat_path)
             try:
                 logger.info(f"Getting parent catalog {parent_path}, in index {CATALOGS_INDEX}")
                 parent_catalog = await self.client.get(index=CATALOGS_INDEX, id=parent_path)
@@ -2106,7 +2106,8 @@ class DatabaseLogic:
         # If this was a public catalog, we need to update inferred parent catalogue access,
         # as if it were being set private
         if access_control.get("exp_public", False):
-            await self.update_parent_catalog_access(parent_cat_path, False)
+            if parent_cat_path:
+                await self.update_parent_catalog_access(parent_cat_path, False)
             
         if access_control.get("owner") != workspace:
             raise HTTPException(status_code=403, detail="You do not have permission to delete catalogs in this catalog")
@@ -2202,7 +2203,7 @@ class DatabaseLogic:
             
         # Check if parent catalog exists
         if cat_path != "":
-            parent_path, parent_id = self.generate_parent_id(cat_path)
+            parent_path, parent_id = self.generate_full_id(cat_path)
             try:
                 logger.info(f"Getting parent catalog {parent_path}, in index {CATALOGS_INDEX}")
                 parent_catalog = await self.client.get(index=CATALOGS_INDEX, id=parent_path)
